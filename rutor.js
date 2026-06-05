@@ -19,26 +19,25 @@
         this.create = function () {
             this.activity.loader(true);
 
-            // Используем allorigins.win как CORS-прокси для обхода блокировок браузера/ТВ
-            var proxy_url = 'https://api.allorigins.win/get?url=' + encodeURIComponent(active_url);
+            // Используем corsproxy.io как более быстрый CORS-прокси
+            var proxy_url = 'https://corsproxy.io/?' + encodeURIComponent(active_url);
             
-            network.silent(proxy_url, function (json) {
-                if (json && json.contents) {
-                    this.parse(json.contents);
+            network.silent(proxy_url, function (html_str) {
+                if (html_str) {
+                    this.parse(html_str);
                 } else {
                     this.empty('Не удалось загрузить данные с Rutor');
                 }
             }.bind(this), function (a, c) {
                 this.empty(network.errorDecode(a, c));
-            }.bind(this));
+            }.bind(this), false, { dataType: 'text' });
 
             return this.render();
         };
 
         this.empty = function (msg) {
-            var empty = new Lampa.Empty();
+            var empty = new Lampa.Empty({title: 'Ошибка', descr: msg});
             html.append(empty.render());
-            this.start = empty.start;
             this.activity.loader(false);
             this.activity.toggle();
         };
