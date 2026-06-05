@@ -20,14 +20,59 @@
             this.activity.loader(true);
 
             // Делаем прямой запрос. Для работы в браузере нужен плагин Allow CORS!
+            // Делаем прямой запрос. Для работы в браузере нужен плагин Allow CORS!
             network.silent(active_url, function (html_str) {
                 if (html_str) {
-                    this.parse(html_str);
+                    var parser = new DOMParser();
+                    var doc = parser.parseFromString(html_str, 'text/html');
+                    var rows = doc.querySelectorAll('#index tr');
+                    
+                    if (rows.length === 0) {
+                        this.empty('Сайт загрузился, но торренты не найдены. Размер ответа: ' + html_str.length + ' байт. Возможно, это заглушка провайдера.');
+                        return;
+                    }
+
+                    var results = [];
+                    rows.forEach(function(row) {
+                        var a = row.querySelector('a[href^="/torrent/"]');
+                        if (a && a.textContent) {
+                            var title_full = a.textContent.trim();
+                            var url = a.getAttribute('href');
+                            
+                            var search_title = title_full;
+                            var year = '';
+                            
+                            var match_year = title_full.match(/\((\d{4})\)/);
+                            if (match_year) {
+                                year = match_year[1];
+                                search_title = title_full.substring(0, title_full.indexOf(match_year[0])).trim();
+                            }
+                            
+                            if (search_title.indexOf('/') !== -1) {
+                                var parts = search_title.split('/');
+                                search_title = parts[0].trim(); 
+                            }
+
+                            results.push({
+                                title_full: title_full,
+                                search_title: search_title.replace(/\[.*?\]/g, '').replace(/\{.*?\}/g, '').trim(),
+                                year: year,
+                                url: url
+                            });
+                        }
+                    });
+
+                    if (results.length === 0) {
+                        this.empty('Найдено ' + rows.length + ' строк, но не удалось извлечь названия торрентов.');
+                        return;
+                    }
+
+                    this.build(results);
                 } else {
-                    this.empty('Не удалось загрузить данные с Rutor');
+                    this.empty('Сервер вернул пустой ответ (без данных)');
                 }
             }.bind(this), function (a, c) {
-                this.empty(network.errorDecode(a, c));
+                this.empty('Сетевая ошибка: ' + network.errorDecode(a, c) + ' | Код: ' + (a && a.status ? a.status : 'нет'));
             }.bind(this), false, { dataType: 'text', timeout: 20000 });
 
             return this.render();
@@ -38,46 +83,6 @@
             html.append(empty.render());
             this.activity.loader(false);
             this.activity.toggle();
-        };
-
-        this.parse = function (html_str) {
-            var parser = new DOMParser();
-            var doc = parser.parseFromString(html_str, 'text/html');
-            var rows = doc.querySelectorAll('#index tr');
-            var results = [];
-
-            rows.forEach(function(row) {
-                var a = row.querySelector('a[href^="/torrent/"]');
-                if (a && a.textContent) {
-                    var title_full = a.textContent.trim();
-                    var url = a.getAttribute('href');
-                    
-                    var search_title = title_full;
-                    var year = '';
-                    
-                    // Парсинг года из названия торрента
-                    var match_year = title_full.match(/\((\d{4})\)/);
-                    if (match_year) {
-                        year = match_year[1];
-                        search_title = title_full.substring(0, title_full.indexOf(match_year[0])).trim();
-                    }
-                    
-                    // Извлечение русского названия (до слеша), если есть оригинальное
-                    if (search_title.indexOf('/') !== -1) {
-                        var parts = search_title.split('/');
-                        search_title = parts[0].trim(); 
-                    }
-
-                    results.push({
-                        title_full: title_full,
-                        search_title: search_title.replace(/\[.*?\]/g, '').replace(/\{.*?\}/g, '').trim(), // Очистка от тегов
-                        year: year,
-                        url: url
-                    });
-                }
-            });
-
-            this.build(results);
         };
 
         this.build = function (results) {
