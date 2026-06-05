@@ -19,8 +19,8 @@
         this.create = function () {
             this.activity.loader(true);
 
-            // Используем corsproxy.io как быстрый CORS-прокси
-            var proxy_url = 'https://corsproxy.io/?' + encodeURIComponent(active_url);
+            // Используем allorigins.win как CORS-прокси (corsproxy.io часто блокируется провайдерами)
+            var proxy_url = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(active_url);
             
             network.silent(proxy_url, function (html_str) {
                 if (html_str) {
@@ -30,7 +30,7 @@
                 }
             }.bind(this), function (a, c) {
                 this.empty(network.errorDecode(a, c));
-            }.bind(this), false, { dataType: 'text' });
+            }.bind(this), false, { dataType: 'text', timeout: 30000 });
 
             return this.render();
         };
