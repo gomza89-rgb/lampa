@@ -20,6 +20,7 @@
             this.activity.loader(true);
 
             // Делаем прямой запрос. Для работы в браузере нужен плагин Allow CORS!
+            // Делаем прямой запрос. Для работы в браузере нужен плагин Allow CORS!
             network.silent(active_url, function (html_str) {
                 if (html_str) {
                     var parser = new DOMParser();
