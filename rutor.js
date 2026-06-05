@@ -138,27 +138,7 @@
                             card: item
                         });
                     } else {
-                        Lampa.Noty.show('Ищем точный ID на странице Rutor...');
-                        network.silent(rutor_url + res.url, function (html_str) {
-                            var imdb_match = html_str.match(/imdb\.com\/title\/(tt\d+)/i);
-                            if (imdb_match) {
-                                var imdb_id = imdb_match[1];
-                                Lampa.TMDB.api('find/' + imdb_id + '?external_source=imdb_id', {}, function(find_res) {
-                                    var type_res = item.type === 'tv' ? find_res.tv_results : find_res.movie_results;
-                                    if (type_res && type_res.length > 0) {
-                                        var tmdb_item = type_res[0];
-                                        item.id = tmdb_item.id;
-                                        Lampa.Activity.push({ url: '', title: item.title, component: 'full', id: item.id, method: item.type, card: item });
-                                    } else {
-                                        Lampa.Noty.show('IMDB ID найден (' + imdb_id + '), но в базе TMDB его нет.');
-                                    }
-                                }, function() { Lampa.Noty.show('Ошибка поиска в базе по IMDB ID'); });
-                            } else {
-                                Lampa.Noty.show('Не найдена ссылка на IMDB на странице раздачи.');
-                            }
-                        }, function() {
-                            Lampa.Noty.show('Не удалось загрузить страницу раздачи.');
-                        }, false, { dataType: 'text' });
+                        Lampa.Noty.show('Информация о релизе еще загружается в фоне, подождите пару секунд...');
                     }
                 };
             });
@@ -173,6 +153,7 @@
                 var query_rus = current.data.search_title;
                 var year = current.data.year;
                 var type = is_serial ? 'tv' : 'movie';
+                var rutor_page_url = rutor_url + current.data.url;
                 
                 function applyTMDB(tmdb_item) {
                     if (tmdb_item) {
@@ -181,31 +162,48 @@
                         current.item.vote_average = tmdb_item.vote_average;
                         
                         if (tmdb_item.poster_path) {
-                            var img_url = Lampa.TMDB.image('t/p/w500' + tmdb_item.poster_path);
+                            var img_url = 'https://image.tmdb.org/t/p/w500' + tmdb_item.poster_path;
                             current.card.render().find('.card__img').attr('src', img_url);
                         }
                     }
-                    setTimeout(loadNext, 300);
+                    setTimeout(loadNext, 1000); // 1 секунда паузы для защиты от бана
                 }
 
-                function searchTMDB(query, callback) {
-                    if (!query || query.length < 2) return callback(false);
-                    Lampa.TMDB.api('search/' + type, { query: query, year: year }, function(result) {
-                        if (result && result.results && result.results.length > 0) callback(result.results[0]);
-                        else callback(false);
-                    }, function() { callback(false); });
+                function searchTMDBText() {
+                    var searchApi = function(query, callback) {
+                        if (!query || query.length < 2) return callback(false);
+                        Lampa.TMDB.api('search/' + type, { query: query, year: year }, function(result) {
+                            if (result && result.results && result.results.length > 0) callback(result.results[0]);
+                            else callback(false);
+                        }, function() { callback(false); });
+                    };
+
+                    searchApi(query_orig, function(res_orig) {
+                        if (res_orig) applyTMDB(res_orig);
+                        else searchApi(query_rus, function(res_rus) { applyTMDB(res_rus); });
+                    });
                 }
 
-                // Сначала ищем по английскому названию (оно точнее), если его нет - по русскому
-                searchTMDB(query_orig, function(res_orig) {
-                    if (res_orig) {
-                        applyTMDB(res_orig);
-                    } else {
-                        searchTMDB(query_rus, function(res_rus) {
-                            applyTMDB(res_rus);
-                        });
-                    }
-                });
+                try {
+                    // Запрашиваем страницу раздачи чтобы достать IMDB ID
+                    network.silent(rutor_page_url, function (html_str) {
+                        var imdb_match = html_str.match(/imdb\.com\/title\/(tt\d+)/i);
+                        if (imdb_match) {
+                            var imdb_id = imdb_match[1];
+                            Lampa.TMDB.api('find/' + imdb_id + '?external_source=imdb_id', {}, function(find_res) {
+                                var type_res = type === 'tv' ? find_res.tv_results : find_res.movie_results;
+                                if (type_res && type_res.length > 0) applyTMDB(type_res[0]);
+                                else searchTMDBText(); // Фолбек на текст если IMDB не найден в базе
+                            }, function() { searchTMDBText(); });
+                        } else {
+                            searchTMDBText(); // Фолбек на текст если нет ссылки IMDB
+                        }
+                    }, function() {
+                        searchTMDBText(); // Фолбек на текст при сетевой ошибке
+                    }, false, { dataType: 'text', timeout: 5000 });
+                } catch(e) {
+                    searchTMDBText();
+                }
             }
             
             loadNext();
