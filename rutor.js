@@ -19,10 +19,8 @@
         this.create = function () {
             this.activity.loader(true);
 
-            // Используем allorigins.win как CORS-прокси (corsproxy.io часто блокируется провайдерами)
-            var proxy_url = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(active_url);
-            
-            network.silent(proxy_url, function (html_str) {
+            // Делаем прямой запрос. Для работы в браузере нужен плагин Allow CORS!
+            network.silent(active_url, function (html_str) {
                 if (html_str) {
                     this.parse(html_str);
                 } else {
@@ -30,7 +28,7 @@
                 }
             }.bind(this), function (a, c) {
                 this.empty(network.errorDecode(a, c));
-            }.bind(this), false, { dataType: 'text', timeout: 30000 });
+            }.bind(this), false, { dataType: 'text', timeout: 20000 });
 
             return this.render();
         };
