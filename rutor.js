@@ -43,7 +43,7 @@
         this.parse = function (html_str) {
             var parser = new DOMParser();
             var doc = parser.parseFromString(html_str, 'text/html');
-            var rows = doc.querySelectorAll('#index tr.g, #index tr.e');
+            var rows = doc.querySelectorAll('#index tr');
             var results = [];
 
             rows.forEach(function(row) {
