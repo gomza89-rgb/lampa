@@ -19,8 +19,10 @@
         this.create = function () {
             this.activity.loader(true);
 
-            // Прямой запрос к сайту (без прокси, как вы просили)
-            network.silent(active_url, function (html_str) {
+            // Используем corsproxy.io как быстрый CORS-прокси
+            var proxy_url = 'https://corsproxy.io/?' + encodeURIComponent(active_url);
+            
+            network.silent(proxy_url, function (html_str) {
                 if (html_str) {
                     this.parse(html_str);
                 } else {
