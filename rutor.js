@@ -1,7 +1,7 @@
 (function () {
     'use strict';
 
-    var plugin_name = 'Rutor Подборки 6';
+    var plugin_name = 'Rutor Подборки 7';
     var rutor_url = 'https://rutor.info'; // Базовый URL
 
     // Компонент для отображения подборки
@@ -194,10 +194,7 @@
                 };
             });
             
-            // Если это добавление страницы, обновим навигацию Lampa
-            if (is_append) {
-                Lampa.Controller.collectionAppend(new_items.map(function(i) { return i.card.render()[0]; }));
-            }
+            // Убрали вызов collectionAppend, так как Lampa сама перехватывает новые элементы
 
             // Последовательная загрузка данных с TMDB только для новых элементов
             var queue = new_items.slice();
@@ -221,7 +218,7 @@
                             current.card.render().find('.card__img').attr('src', img_url);
                         }
                     }
-                    setTimeout(loadNext, 100); // 100ms задержка, TMDB API держит 40 req/sec
+                    setTimeout(loadNext, 800); // 800ms задержка, чтобы не поймать бан от TMDB (ограничение 40 req/10sec)
                 }
 
                 function searchTMDBText() {
