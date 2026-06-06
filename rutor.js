@@ -63,10 +63,17 @@
                 var search_title = title_full;
                 var year = '';
                 
-                var match_year = title_full.match(/\((\d{4})\)/);
+                var match_year = title_full.match(/\s\((\d{4})\)\s/); // Ищем год в скобках с пробелами по краям
                 if (match_year) {
                     year = match_year[1];
                     search_title = title_full.substring(0, title_full.indexOf(match_year[0])).trim();
+                } else {
+                    // Если не нашли с пробелами, ищем просто 4 цифры в скобках
+                    match_year = title_full.match(/\((\d{4})\)/);
+                    if (match_year) {
+                        year = match_year[1];
+                        search_title = title_full.substring(0, title_full.indexOf(match_year[0])).trim();
+                    }
                 }
                 
                 var original_title = '';
@@ -144,26 +151,6 @@
             done();
         }
 
-        function searchTMDBText() {
-            // Сначала пробуем искать по оригинальному названию, если нет - по русскому
-            var queries = [];
-            if (elem.original_title) queries.push(elem.original_title);
-            if (elem.search_title && elem.search_title !== elem.original_title) queries.push(elem.search_title);
-            if (queries.length === 0) return applyTMDB(false);
-
-            function tryQuery(index) {
-                if (index >= queries.length) return applyTMDB(false);
-                var q = queries[index];
-                
-                Lampa.TMDB.api('search/' + elem.type, { query: q, year: elem.year }, function(result) {
-                    if (result && result.results && result.results.length > 0) applyTMDB(result.results[0]);
-                    else tryQuery(index + 1);
-                }, function() { tryQuery(index + 1); });
-            }
-            
-            tryQuery(0);
-        }
-
         fetchHtml(elem.rutor_page_url, function(html_str) {
             var imdb_match = html_str.match(/imdb\.com\/title\/(tt\d+)/i);
             if (imdb_match) {
@@ -171,13 +158,13 @@
                 Lampa.TMDB.api('find/' + imdb_id + '?external_source=imdb_id', {}, function(find_res) {
                     var type_res = elem.type === 'tv' ? find_res.tv_results : find_res.movie_results;
                     if (type_res && type_res.length > 0) applyTMDB(type_res[0]);
-                    else searchTMDBText();
-                }, function() { searchTMDBText(); });
+                    else applyTMDB(false);
+                }, function() { applyTMDB(false); });
             } else {
-                searchTMDBText();
+                applyTMDB(false);
             }
         }, function() {
-            searchTMDBText();
+            applyTMDB(false);
         });
     }
 
@@ -224,18 +211,9 @@
         comp.cardRender = function (object, element, card) {
             card.onEnter = function () {
                 if (element.id) {
-                    Lampa.Activity.push({ url: '', title: element.title, component: 'full', id: element.id, method: element.type, card: element });
+                    Lampa.Activity.push({ url: '', title: element.title, component: 'full', id: element.id, method: element.type, card: element, source: 'tmdb' });
                 } else {
-                    Lampa.Noty.show('Поиск карточки фильма в базе, подождите пару секунд...');
-                    var q = element.original_title || element.search_title;
-                    Lampa.TMDB.api('search/' + element.type, { query: q, year: element.year }, function(result) {
-                        if (result && result.results && result.results.length > 0) {
-                            element.id = result.results[0].id;
-                            Lampa.Activity.push({ url: '', title: element.title, component: 'full', id: element.id, method: element.type, card: element });
-                        } else {
-                            Lampa.Noty.show('Фильм не найден в базе TMDB.');
-                        }
-                    });
+                    Lampa.Noty.show('Карточка еще прогружается или не найдена в базе (IMDB ID отсутствует).');
                 }
             };
 
