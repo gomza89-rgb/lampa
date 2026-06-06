@@ -1,8 +1,8 @@
 (function () {
     'use strict';
 
-    var plugin_name = 'Rutor Подборки';
-    var rutor_url = 'https://rutor.info'; // Базовый URL, можно будет вынести в настройки
+    var plugin_name = 'Rutor Подборки 6';
+    var rutor_url = 'https://rutor.info'; // Базовый URL
 
     // Компонент для отображения подборки
     function RutorComponent(object) {
@@ -13,8 +13,10 @@
         var body = $('<div class="category-full"></div>');
         var info = Lampa.Template.get('info');
         
-        var active_url = rutor_url + object.url;
+        var active_page = object.page || 1;
         var is_serial = object.url.indexOf('seriali') !== -1;
+        var is_loading = false;
+        var has_more = true;
 
         function fetchHtml(url, callback, error_callback) {
             var req = new Lampa.Reguest();
@@ -34,59 +36,59 @@
             tryNext();
         }
 
+        function parseHtml(html_str) {
+            var parser = new DOMParser();
+            var doc = parser.parseFromString(html_str, 'text/html');
+            var rows = doc.querySelectorAll('#index tr');
+            var results = [];
+            
+            rows.forEach(function(row) {
+                var a = row.querySelector('a[href^="/torrent/"]');
+                if (a && a.textContent) {
+                    var title_full = a.textContent.trim();
+                    var url = a.getAttribute('href');
+                    
+                    var search_title = title_full;
+                    var year = '';
+                    
+                    var match_year = title_full.match(/\((\d{4})\)/);
+                    if (match_year) {
+                        year = match_year[1];
+                        search_title = title_full.substring(0, title_full.indexOf(match_year[0])).trim();
+                    }
+                    
+                    var original_title = '';
+                    if (search_title.indexOf('/') !== -1) {
+                        var parts = search_title.split('/');
+                        search_title = parts[0].trim(); 
+                        original_title = parts.length > 1 ? parts[1].trim() : '';
+                    }
+
+                    results.push({
+                        title_full: title_full,
+                        search_title: search_title.replace(/\[.*?\]/g, '').replace(/\{.*?\}/g, '').trim(),
+                        original_title: original_title.replace(/\[.*?\]/g, '').replace(/\{.*?\}/g, '').trim(),
+                        year: year,
+                        url: url
+                    });
+                }
+            });
+            return results;
+        }
+
         this.create = function () {
             this.activity.loader(true);
+            var rutor_page = active_page - 1;
+            var active_url = rutor_url + object.url + (rutor_page > 0 ? '/' + rutor_page : '');
 
             fetchHtml(active_url, function (html_str) {
                 if (html_str) {
-                    var parser = new DOMParser();
-                    var doc = parser.parseFromString(html_str, 'text/html');
-                    var rows = doc.querySelectorAll('#index tr');
-                    
-                    if (rows.length === 0) {
-                        this.empty('Сайт загрузился, но торренты не найдены. Размер ответа: ' + html_str.length + ' байт. Возможно, это заглушка провайдера.');
-                        return;
-                    }
-
-                    var results = [];
-                    rows.forEach(function(row) {
-                        var a = row.querySelector('a[href^="/torrent/"]');
-                        if (a && a.textContent) {
-                            var title_full = a.textContent.trim();
-                            var url = a.getAttribute('href');
-                            
-                            var search_title = title_full;
-                            var year = '';
-                            
-                            var match_year = title_full.match(/\((\d{4})\)/);
-                            if (match_year) {
-                                year = match_year[1];
-                                search_title = title_full.substring(0, title_full.indexOf(match_year[0])).trim();
-                            }
-                            
-                            var original_title = '';
-                            if (search_title.indexOf('/') !== -1) {
-                                var parts = search_title.split('/');
-                                search_title = parts[0].trim(); 
-                                original_title = parts.length > 1 ? parts[1].trim() : '';
-                            }
-
-                            results.push({
-                                title_full: title_full,
-                                search_title: search_title.replace(/\[.*?\]/g, '').replace(/\{.*?\}/g, '').trim(),
-                                original_title: original_title.replace(/\[.*?\]/g, '').replace(/\{.*?\}/g, '').trim(),
-                                year: year,
-                                url: url
-                            });
-                        }
-                    });
-
+                    var results = parseHtml(html_str);
                     if (results.length === 0) {
-                        this.empty('Найдено ' + rows.length + ' строк, но не удалось извлечь названия торрентов.');
+                        this.empty('Торренты не найдены. Возможно, изменился дизайн сайта или это заглушка провайдера.');
                         return;
                     }
-
-                    this.build(results);
+                    this.build(results, false);
                 } else {
                     this.empty('Сервер вернул пустой ответ (без данных)');
                 }
@@ -97,6 +99,27 @@
             return this.render();
         };
 
+        this.append = function () {
+            if (is_loading || !has_more) return;
+            is_loading = true;
+            active_page++;
+            var next_rutor_page = active_page - 1;
+            var next_url = rutor_url + object.url + '/' + next_rutor_page;
+            
+            fetchHtml(next_url, function (html_str) {
+                var results = parseHtml(html_str);
+                if (results.length === 0) {
+                    has_more = false;
+                } else {
+                    this.build(results, true);
+                }
+                is_loading = false;
+            }.bind(this), function() { 
+                is_loading = false; 
+                has_more = false; 
+            });
+        };
+
         this.empty = function (msg) {
             var empty = new Lampa.Empty({title: 'Ошибка', descr: msg});
             html.append(empty.render());
@@ -104,21 +127,23 @@
             this.activity.toggle();
         };
 
-        this.build = function (results) {
-            this.activity.loader(false);
-            this.activity.toggle();
-            
-            // Скрываем лишние элементы info блока
-            info.find('.info__rate, .info__right').remove();
-            
-            html.append(info);
-            html.append(scroll.render());
-            scroll.append(body);
+        this.build = function (results, is_append) {
+            if (!is_append) {
+                this.activity.loader(false);
+                this.activity.toggle();
+                info.find('.info__rate, .info__right').remove();
+                html.append(info);
+                html.append(scroll.render());
+                scroll.append(body);
+                
+                scroll.onEnd = function () {
+                    this.append();
+                }.bind(this);
+            }
 
-            var _this = this;
+            var new_items = [];
 
             results.forEach(function(res) {
-                // Создаем болванку для фильма
                 var item = {
                     title: res.search_title || res.title_full,
                     original_title: res.original_title || res.search_title,
@@ -130,20 +155,20 @@
                     type: is_serial ? 'tv' : 'movie'
                 };
                 
-                var card = new Lampa.Card(item, {
-                    card_category: true
-                });
-                
+                var card = new Lampa.Card(item, { card_category: true });
                 card.create();
                 body.append(card.render());
-                items.push({ card: card, data: res, item: item });
                 
-                card.onHover = function (target) {
+                var item_obj = { card: card, data: res, item: item };
+                items.push(item_obj);
+                new_items.push(item_obj);
+                
+                card.onHover = function () {
                     info.find('.info__title').text(item.original_title || item.title);
-                    info.find('.info__title-original').text(item.title); // Показываем полное название раздачи в качестве оригинального
+                    info.find('.info__title-original').text(item.title);
                 };
                 
-                card.onEnter = function (target, card_data) {
+                card.onEnter = function () {
                     if (item.id) {
                         Lampa.Activity.push({
                             url: '',
@@ -154,13 +179,28 @@
                             card: item
                         });
                     } else {
-                        Lampa.Noty.show('Информация о релизе еще загружается в фоне, подождите пару секунд...');
+                        Lampa.Noty.show('Поиск карточки фильма в базе, подождите пару секунд...');
+                        // Попробуем поискать вручную если еще не найдено
+                        Lampa.TMDB.api('search/' + item.type, { query: item.original_title || item.title, year: item.release_date.split('-')[0] }, function(result) {
+                            if (result && result.results && result.results.length > 0) {
+                                var tmdb_item = result.results[0];
+                                item.id = tmdb_item.id;
+                                Lampa.Activity.push({ url: '', title: item.title, component: 'full', id: item.id, method: item.type, card: item });
+                            } else {
+                                Lampa.Noty.show('Фильм не найден в базе TMDB.');
+                            }
+                        });
                     }
                 };
             });
             
-            // Последовательная загрузка данных с TMDB
-            var queue = items.slice();
+            // Если это добавление страницы, обновим навигацию Lampa
+            if (is_append) {
+                Lampa.Controller.collectionAppend(new_items.map(function(i) { return i.card.render()[0]; }));
+            }
+
+            // Последовательная загрузка данных с TMDB только для новых элементов
+            var queue = new_items.slice();
             function loadNext() {
                 if (queue.length === 0) return;
                 var current = queue.shift();
@@ -169,7 +209,6 @@
                 var query_rus = current.data.search_title;
                 var year = current.data.year;
                 var type = is_serial ? 'tv' : 'movie';
-                var rutor_page_url = rutor_url + current.data.url;
                 
                 function applyTMDB(tmdb_item) {
                     if (tmdb_item) {
@@ -182,7 +221,7 @@
                             current.card.render().find('.card__img').attr('src', img_url);
                         }
                     }
-                    setTimeout(loadNext, 1000); // 1 секунда паузы для защиты от бана
+                    setTimeout(loadNext, 100); // 100ms задержка, TMDB API держит 40 req/sec
                 }
 
                 function searchTMDBText() {
@@ -199,27 +238,8 @@
                         else searchApi(query_rus, function(res_rus) { applyTMDB(res_rus); });
                     });
                 }
-
-                try {
-                    // Запрашиваем страницу раздачи чтобы достать IMDB ID
-                    fetchHtml(rutor_page_url, function (html_str) {
-                        var imdb_match = html_str.match(/imdb\.com\/title\/(tt\d+)/i);
-                        if (imdb_match) {
-                            var imdb_id = imdb_match[1];
-                            Lampa.TMDB.api('find/' + imdb_id + '?external_source=imdb_id', {}, function(find_res) {
-                                var type_res = type === 'tv' ? find_res.tv_results : find_res.movie_results;
-                                if (type_res && type_res.length > 0) applyTMDB(type_res[0]);
-                                else searchTMDBText(); // Фолбек на текст если IMDB не найден в базе
-                            }, function() { searchTMDBText(); });
-                        } else {
-                            searchTMDBText(); // Фолбек на текст если нет ссылки IMDB
-                        }
-                    }, function() {
-                        searchTMDBText(); // Фолбек на текст при сетевой ошибке
-                    });
-                } catch(e) {
-                    searchTMDBText();
-                }
+                
+                searchTMDBText();
             }
             
             loadNext();
@@ -272,23 +292,15 @@
 
     // Добавление в меню
     function addMenu() {
-        // SVG иконка Rutor (взята иконка базы данных)
         var svg = '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M12,3C7.58,3 4,4.79 4,7C4,9.21 7.58,11 12,11C16.42,11 20,9.21 20,7C20,4.79 16.42,3 12,3M4,9V12C4,14.21 7.58,16 12,16C16.42,16 20,14.21 20,12V9C20,11.21 16.42,13 12,13C7.58,13 4,11.21 4,9M4,14V17C4,19.21 7.58,21 12,21C16.42,21 20,19.21 20,17V14C20,16.21 16.42,18 12,18C7.58,18 4,16.21 4,14Z" /></svg>';
-        
         var menu_item = $('<li class="menu__item selector" data-action="rutor"><div class="menu__ico">' + svg + '</div><div class="menu__text">Rutor</div></li>');
         
         menu_item.on('hover:enter', function () {
             Lampa.Select.show({
                 title: 'Rutor Подборки',
                 items: [
-                    {
-                        title: 'Новые фильмы',
-                        url: '/kino'
-                    },
-                    {
-                        title: 'Зарубежные сериалы',
-                        url: '/seriali'
-                    }
+                    { title: 'Новые фильмы', url: '/kino' },
+                    { title: 'Зарубежные сериалы', url: '/seriali' }
                 ],
                 onSelect: function (a) {
                     Lampa.Activity.push({
@@ -304,7 +316,6 @@
             });
         });
 
-        // Вставляем перед настройками
         $('.menu .menu__item[data-action="settings"]').before(menu_item);
     }
 
