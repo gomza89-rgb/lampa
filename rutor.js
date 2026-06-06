@@ -10,11 +10,12 @@
 
     var rutor_url = 'https://rutor.info';
 
+    // Загрузка HTML страницы через прокси (для rutor.info)
     function fetchHtml(url, callback, error_callback) {
         var proxyList = [
-            '', 
             'https://api.allorigins.win/raw?url=',
-            'https://corsproxy.io/?'
+            'https://corsproxy.io/?',
+            'https://cors-anywhere.herokuapp.com/'
         ];
         var currentProxy = 0;
 
@@ -24,19 +25,19 @@
                 return;
             }
             var proxy = proxyList[currentProxy];
-            var fetchUrl = proxy ? proxy + encodeURIComponent(url) : url;
+            var fetchUrl = proxy + encodeURIComponent(url);
 
             var controller = new AbortController();
-            var timeoutId = setTimeout(function() { controller.abort(); }, 8000);
+            var timeoutId = setTimeout(function() { controller.abort(); }, 10000);
 
             fetch(fetchUrl, { signal: controller.signal })
                 .then(function(response) {
                     clearTimeout(timeoutId);
-                    if (!response.ok) throw new Error('Bad response');
+                    if (!response.ok) throw new Error('Bad response ' + response.status);
                     return response.text();
                 })
                 .then(function(text) {
-                    if (text && text.length > 50) callback(text);
+                    if (text && text.length > 100) callback(text);
                     else throw new Error('Empty body');
                 })
                 .catch(function(e) {
@@ -46,6 +47,30 @@
                 });
         }
         tryFetch();
+    }
+
+    // Запрос к TMDB через встроенный механизм Lampa (совместимо с tmdb-proxy плагином)
+    function tmdbRequest(path, params, callback, errorCallback) {
+        var network = new Lampa.Reguest();
+        // Собираем query string из params
+        var query_parts = [];
+        if (params) {
+            for (var key in params) {
+                if (params.hasOwnProperty(key)) {
+                    query_parts.push(encodeURIComponent(key) + '=' + encodeURIComponent(params[key]));
+                }
+            }
+        }
+        var full_path = path + (query_parts.length ? (path.indexOf('?') > -1 ? '&' : '?') + query_parts.join('&') : '');
+        // Lampa.TMDB.api() возвращает полный URL (с прокси если включен)
+        var url = Lampa.TMDB.api(full_path);
+        
+        network.timeout(8000);
+        network.silent(url, function(data) {
+            if (callback) callback(data);
+        }, function(a, c) {
+            if (errorCallback) errorCallback(a, c);
+        });
     }
 
     function parseHtml(html_str, is_serial) {
@@ -63,17 +88,10 @@
                 var search_title = title_full;
                 var year = '';
                 
-                var match_year = title_full.match(/\s\((\d{4})\)\s/); // Ищем год в скобках с пробелами по краям
+                var match_year = title_full.match(/\((\d{4})\)/);
                 if (match_year) {
                     year = match_year[1];
                     search_title = title_full.substring(0, title_full.indexOf(match_year[0])).trim();
-                } else {
-                    // Если не нашли с пробелами, ищем просто 4 цифры в скобках
-                    match_year = title_full.match(/\((\d{4})\)/);
-                    if (match_year) {
-                        year = match_year[1];
-                        search_title = title_full.substring(0, title_full.indexOf(match_year[0])).trim();
-                    }
                 }
                 
                 var original_title = '';
@@ -83,10 +101,14 @@
                     original_title = parts.length > 1 ? parts[1].trim() : '';
                 }
 
+                // Простая очистка от мусора
+                search_title = search_title.replace(/\[.*?\]/g, '').replace(/\{.*?\}/g, '').trim();
+                original_title = original_title.replace(/\[.*?\]/g, '').replace(/\{.*?\}/g, '').trim();
+
                 results.push({
-                    title: search_title.replace(/\[.*?\]/g, '').replace(/\{.*?\}/g, '').trim(),
-                    original_title: original_title.replace(/\[.*?\]/g, '').replace(/\{.*?\}/g, '').trim() || title_full,
-                    search_title: search_title.replace(/\[.*?\]/g, '').replace(/\{.*?\}/g, '').trim(),
+                    title: search_title || title_full,
+                    original_title: original_title || search_title || title_full,
+                    search_title: search_title,
                     year: year,
                     release_date: year ? year + '-01-01' : '0000-00-00',
                     poster_path: '',
@@ -102,9 +124,10 @@
         return results;
     }
 
+    // Очередь для фоновой загрузки данных из TMDB
     var rutor_queue = [];
     var rutor_active_threads = 0;
-    var rutor_max_threads = 1; // Уменьшим до 1 потока, чтобы избежать бана от TMDB (ограничение 40 запросов в 10 сек)
+    var rutor_max_threads = 2;
 
     function processRutorQueue() {
         while (rutor_active_threads < rutor_max_threads && rutor_queue.length > 0) {
@@ -125,7 +148,7 @@
         
         function done() {
             rutor_active_threads--;
-            setTimeout(processRutorQueue, 400); // 400ms задержка = 2.5 запроса в секунду (безопасно для TMDB)
+            setTimeout(processRutorQueue, 300);
         }
 
         function applyTMDB(tmdb_item) {
@@ -138,24 +161,29 @@
                 }
                 
                 if (tmdb_item.poster_path) {
-                    var img_url = 'https://image.tmdb.org/t/p/w500' + tmdb_item.poster_path;
-                    var card_img = card.render().find('.card__img')[0];
-                    if (card_img) {
-                        card_img.onload = function() {
-                            card.render().addClass('card--loaded');
-                        };
-                        card_img.src = img_url;
+                    // Используем Lampa.TMDB.image() для правильного URL постера (через прокси)
+                    var img_url = Lampa.TMDB.image('t/p/w500' + tmdb_item.poster_path);
+                    var card_render = card.render();
+                    if (card_render) {
+                        var card_img = card_render.find('.card__img')[0];
+                        if (card_img) {
+                            card_img.onload = function() {
+                                card_render.addClass('card--loaded');
+                            };
+                            card_img.src = img_url;
+                        }
                     }
                 }
             }
             done();
         }
 
+        // Загружаем страницу релиза rutor чтобы найти IMDB ID
         fetchHtml(elem.rutor_page_url, function(html_str) {
             var imdb_match = html_str.match(/imdb\.com\/title\/(tt\d+)/i);
             if (imdb_match) {
                 var imdb_id = imdb_match[1];
-                Lampa.TMDB.api('find/' + imdb_id + '?external_source=imdb_id', {}, function(find_res) {
+                tmdbRequest('find/' + imdb_id + '?external_source=imdb_id', {}, function(find_res) {
                     var type_res = elem.type === 'tv' ? find_res.tv_results : find_res.movie_results;
                     if (type_res && type_res.length > 0) applyTMDB(type_res[0]);
                     else applyTMDB(false);
@@ -180,15 +208,15 @@
             fetchHtml(active_url, function (html_str) {
                 var results = parseHtml(html_str, is_serial);
                 if (results.length === 0) {
-                    _this.empty('Торренты не найдены. Возможно, сайт временно недоступен или изменил дизайн.');
+                    _this.empty('Торренты не найдены.');
                     return;
                 }
                 _this.build({
                     results: results,
-                    total_pages: 100
+                    total_pages: 50
                 });
             }, function () {
-                _this.empty('Сетевая ошибка: Не удалось загрузить данные (провайдер блокирует доступ).');
+                _this.empty('Не удалось загрузить данные. Все прокси недоступны.');
             });
         };
 
@@ -201,7 +229,7 @@
                 if (results.length === 0) {
                     resolve({ results: [], total_pages: object.page });
                 } else {
-                    resolve({ results: results, total_pages: 100 });
+                    resolve({ results: results, total_pages: 50 });
                 }
             }, function() { 
                 reject();
@@ -213,7 +241,7 @@
                 if (element.id) {
                     Lampa.Activity.push({ url: '', title: element.title, component: 'full', id: element.id, method: element.type, card: element, source: 'tmdb' });
                 } else {
-                    Lampa.Noty.show('Карточка еще прогружается или не найдена в базе (IMDB ID отсутствует).');
+                    Lampa.Noty.show('Карточка ещё загружается, подождите...');
                 }
             };
 
