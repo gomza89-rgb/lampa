@@ -46,27 +46,6 @@
         tryFetch();
     }
 
-    // TMDB запрос через Lampa.Reguest (совместимо с tmdb-proxy)
-    function tmdbGet(path, callback, errorCallback) {
-        var network = new Lampa.Reguest();
-        var url = Lampa.TMDB.api(path);
-        network.timeout(8000);
-        network.silent(url, function(data) {
-            callback(data);
-        }, function() {
-            if (errorCallback) errorCallback();
-        });
-    }
-
-    // Получить URL постера через Lampa (совместимо с tmdb-proxy)
-    function posterUrl(poster_path) {
-        if (!poster_path) return '';
-        if (Lampa.TMDB.image) {
-            return Lampa.TMDB.image('t/p/w500' + poster_path);
-        }
-        return 'https://image.tmdb.org/t/p/w500' + poster_path;
-    }
-
     function parseHtml(html_str, is_serial) {
         var parser = new DOMParser();
         var doc = parser.parseFromString(html_str, 'text/html');
@@ -141,9 +120,10 @@
                 elem.poster_path = tmdb.poster_path;
                 elem.vote_average = tmdb.vote_average || 0;
                 if (tmdb.backdrop_path) elem.background_image = tmdb.backdrop_path;
-                
-                var img = posterUrl(tmdb.poster_path);
-                if (img) {
+
+                // Используем TMDB.img() — стандартную функцию Lampa для постеров
+                if (tmdb.poster_path) {
+                    var img = Lampa.TMDB.img(tmdb.poster_path);
                     var el = card.render().find('.card__img')[0];
                     if (el) {
                         el.onload = function() { card.render().addClass('card--loaded'); };
@@ -154,21 +134,22 @@
             done();
         }
 
-        // Стратегия: ищем по оригинальному названию (англ), потом по русскому, потом без года
+        // Используем Lampa.TMDB.get() — нативный метод Lampa для запросов к TMDB API
+        // Он сам добавляет api_key, язык, и использует прокси если настроен
         var queries = [];
         if (elem.original_title && elem.original_title !== elem.title) queries.push(elem.original_title);
         queries.push(elem.title);
         
         function trySearch(idx, with_year) {
             if (idx >= queries.length) {
-                if (with_year) return trySearch(0, false); // повтор без года
+                if (with_year) return trySearch(0, false);
                 return apply(false);
             }
             var q = queries[idx];
-            var path = 'search/' + type + '?query=' + encodeURIComponent(q) + '&language=ru';
-            if (with_year && elem.year) path += '&year=' + elem.year;
+            var params = { query: q };
+            if (with_year && elem.year) params.year = elem.year;
 
-            tmdbGet(path, function(data) {
+            Lampa.TMDB.get('search/' + type, params, function(data) {
                 if (data && data.results && data.results.length > 0) {
                     apply(data.results[0]);
                 } else {
