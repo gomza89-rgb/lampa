@@ -97,7 +97,7 @@
 
     var rutor_queue = [];
     var rutor_active_threads = 0;
-    var rutor_max_threads = 3;
+    var rutor_max_threads = 1; // Уменьшим до 1 потока, чтобы избежать бана от TMDB (ограничение 40 запросов в 10 сек)
 
     function processRutorQueue() {
         while (rutor_active_threads < rutor_max_threads && rutor_queue.length > 0) {
@@ -118,7 +118,7 @@
         
         function done() {
             rutor_active_threads--;
-            setTimeout(processRutorQueue, 50);
+            setTimeout(processRutorQueue, 400); // 400ms задержка = 2.5 запроса в секунду (безопасно для TMDB)
         }
 
         function applyTMDB(tmdb_item) {
@@ -145,13 +145,23 @@
         }
 
         function searchTMDBText() {
-            var q = elem.original_title || elem.search_title;
-            if (!q || q.length < 2) return applyTMDB(false);
+            // Сначала пробуем искать по оригинальному названию, если нет - по русскому
+            var queries = [];
+            if (elem.original_title) queries.push(elem.original_title);
+            if (elem.search_title && elem.search_title !== elem.original_title) queries.push(elem.search_title);
+            if (queries.length === 0) return applyTMDB(false);
+
+            function tryQuery(index) {
+                if (index >= queries.length) return applyTMDB(false);
+                var q = queries[index];
+                
+                Lampa.TMDB.api('search/' + elem.type, { query: q, year: elem.year }, function(result) {
+                    if (result && result.results && result.results.length > 0) applyTMDB(result.results[0]);
+                    else tryQuery(index + 1);
+                }, function() { tryQuery(index + 1); });
+            }
             
-            Lampa.TMDB.api('search/' + elem.type, { query: q, year: elem.year }, function(result) {
-                if (result && result.results && result.results.length > 0) applyTMDB(result.results[0]);
-                else applyTMDB(false);
-            }, function() { applyTMDB(false); });
+            tryQuery(0);
         }
 
         fetchHtml(elem.rutor_page_url, function(html_str) {
@@ -214,14 +224,14 @@
         comp.cardRender = function (object, element, card) {
             card.onEnter = function () {
                 if (element.id) {
-                    Lampa.Activity.push({ url: '', title: element.title, component: 'full', id: element.id, method: element.type, card: element });
+                    Lampa.Activity.push({ url: '', title: element.title, component: 'full', id: element.id, method: element.type, card: element, source: 'tmdb' });
                 } else {
                     Lampa.Noty.show('Поиск карточки фильма в базе, подождите пару секунд...');
                     var q = element.original_title || element.search_title;
                     Lampa.TMDB.api('search/' + element.type, { query: q, year: element.year }, function(result) {
                         if (result && result.results && result.results.length > 0) {
                             element.id = result.results[0].id;
-                            Lampa.Activity.push({ url: '', title: element.title, component: 'full', id: element.id, method: element.type, card: element });
+                            Lampa.Activity.push({ url: '', title: element.title, component: 'full', id: element.id, method: element.type, card: element, source: 'tmdb' });
                         } else {
                             Lampa.Noty.show('Фильм не найден в базе TMDB.');
                         }
