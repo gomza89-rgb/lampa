@@ -16,12 +16,28 @@
         var active_url = rutor_url + object.url;
         var is_serial = object.url.indexOf('seriali') !== -1;
 
+        function fetchHtml(url, callback, error_callback) {
+            var req = new Lampa.Reguest();
+            var methods = [
+                function(next) { req.silent(url, function(html) { callback(html); }, next, false, {dataType: 'text', timeout: 5000}); },
+                function(next) { 
+                    var proxy = 'https://api.allorigins.win/get?url=' + encodeURIComponent(url);
+                    req.silent(proxy, function(json) { if (json && json.contents) callback(json.contents); else next(); }, next, false, {timeout: 8000});
+                },
+                function(next) { 
+                    var proxy = 'https://corsproxy.io/?' + encodeURIComponent(url);
+                    req.silent(proxy, function(html) { callback(html); }, next, false, {dataType: 'text', timeout: 8000});
+                }
+            ];
+            var step = 0;
+            function tryNext() { if (step < methods.length) { methods[step++](tryNext); } else { if (error_callback) error_callback(); } }
+            tryNext();
+        }
+
         this.create = function () {
             this.activity.loader(true);
 
-            // Делаем прямой запрос. Для работы в браузере нужен плагин Allow CORS!
-            // Делаем прямой запрос. Для работы в браузере нужен плагин Allow CORS!
-            network.silent(active_url, function (html_str) {
+            fetchHtml(active_url, function (html_str) {
                 if (html_str) {
                     var parser = new DOMParser();
                     var doc = parser.parseFromString(html_str, 'text/html');
@@ -74,9 +90,9 @@
                 } else {
                     this.empty('Сервер вернул пустой ответ (без данных)');
                 }
-            }.bind(this), function (a, c) {
-                this.empty('Сетевая ошибка: ' + network.errorDecode(a, c) + ' | Код: ' + (a && a.status ? a.status : 'нет'));
-            }.bind(this), false, { dataType: 'text', timeout: 20000 });
+            }.bind(this), function () {
+                this.empty('Сетевая ошибка: Не удалось загрузить данные (CORS или провайдер блокирует доступ).');
+            }.bind(this));
 
             return this.render();
         };
@@ -186,7 +202,7 @@
 
                 try {
                     // Запрашиваем страницу раздачи чтобы достать IMDB ID
-                    network.silent(rutor_page_url, function (html_str) {
+                    fetchHtml(rutor_page_url, function (html_str) {
                         var imdb_match = html_str.match(/imdb\.com\/title\/(tt\d+)/i);
                         if (imdb_match) {
                             var imdb_id = imdb_match[1];
@@ -200,7 +216,7 @@
                         }
                     }, function() {
                         searchTMDBText(); // Фолбек на текст при сетевой ошибке
-                    }, false, { dataType: 'text', timeout: 5000 });
+                    });
                 } catch(e) {
                     searchTMDBText();
                 }
