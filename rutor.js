@@ -224,14 +224,14 @@
         comp.cardRender = function (object, element, card) {
             card.onEnter = function () {
                 if (element.id) {
-                    Lampa.Activity.push({ url: '', title: element.title, component: 'full', id: element.id, method: element.type, card: element, source: 'tmdb' });
+                    Lampa.Activity.push({ url: '', title: element.title, component: 'full', id: element.id, method: element.type, card: element });
                 } else {
                     Lampa.Noty.show('Поиск карточки фильма в базе, подождите пару секунд...');
                     var q = element.original_title || element.search_title;
                     Lampa.TMDB.api('search/' + element.type, { query: q, year: element.year }, function(result) {
                         if (result && result.results && result.results.length > 0) {
                             element.id = result.results[0].id;
-                            Lampa.Activity.push({ url: '', title: element.title, component: 'full', id: element.id, method: element.type, card: element, source: 'tmdb' });
+                            Lampa.Activity.push({ url: '', title: element.title, component: 'full', id: element.id, method: element.type, card: element });
                         } else {
                             Lampa.Noty.show('Фильм не найден в базе TMDB.');
                         }
